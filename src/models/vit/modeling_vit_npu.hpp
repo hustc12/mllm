@@ -25,10 +25,6 @@ inline pair<int, int> closestFactors(int n) {
 
 // NPU part for attention computation
 class ViTAttentionNPUPart1 final : public Module {
-    int hidden_dim;
-    int num_heads;
-    int head_dim;
-
     Layer pre_attn_view;
     Layer q_proj;
     Layer k_proj;
@@ -44,19 +40,20 @@ class ViTAttentionNPUPart1 final : public Module {
 public:
     ViTAttentionNPUPart1() = default;
     ViTAttentionNPUPart1(const ViTConfig &config, const string &base_name) {
-        hidden_dim = config.hidden_dim;
-        num_heads = config.head_size;
-        head_dim = config.hidden_dim / num_heads;
+        int hidden_dim = config.hidden_dim;
+        int head_size = config.head_size;
+        int head_dim = hidden_dim / head_size;
 
-        pre_attn_view = View(-1, 1, -1, num_heads * head_dim, base_name + "attn_split_view");
+        pre_attn_view = View(-1, 1, -1, head_size * head_dim, base_name + "attn_split_view");
 
-        q_proj = Linear(hidden_dim, hidden_dim, true, base_name + "query");
-        k_proj = Linear(hidden_dim, hidden_dim, true, base_name + "key");
-        v_proj = Linear(hidden_dim, hidden_dim, true, base_name + "value");
+        // Match original ViT naming
+        q_proj = Linear(hidden_dim, hidden_dim, true, base_name + "attention.query");
+        k_proj = Linear(hidden_dim, hidden_dim, true, base_name + "attention.key");
+        v_proj = Linear(hidden_dim, hidden_dim, true, base_name + "attention.value");
 
-        q_view = View(-1, num_heads, -1, head_dim, base_name + "query_view");
-        k_view = View(-1, num_heads, -1, head_dim, base_name + "key_view");
-        v_view = View(-1, num_heads, -1, head_dim, base_name + "value_view");
+        q_view = View(-1, head_size, -1, head_dim, base_name + "query_view");
+        k_view = View(-1, head_size, -1, head_dim, base_name + "key_view");
+        v_view = View(-1, head_size, -1, head_dim, base_name + "value_view");
 
         q_dequant = Dequantize(true, base_name + "query.dequantize");
         k_dequant = Dequantize(true, base_name + "key.dequantize", false);
@@ -93,8 +90,8 @@ class ViTAttentionCPU final : public Module {
 public:
     ViTAttentionCPU() = default;
     ViTAttentionCPU(const ViTConfig &config, const string &base_name) {
-        softmax = Softmax(DIMENSION, true, base_name + "softmax");
-        o_quantize = Quantize(true, base_name + "proj.quantize");
+        softmax = Softmax(DIMENSION, true, base_name + "attention.softmax");
+        o_quantize = Quantize(true, base_name + "attention.output.quantize");
     }
 
     vector<Tensor> Forward(vector<Tensor> inputs, vector<std::any> args) override {
@@ -111,55 +108,37 @@ public:
     }
 };
 
-// NPU part for MLP and output projection
+// NPU part for MLP
 class ViTMLPNPU final : public Module {
-    Layer pre_mlp_view;
-    Layer mlp_fc1;
-    Layer mlp_act;
-    Layer mlp_fc2;
-    Layer post_mlp_view;
-    Layer layernorm;
-    Layer out_proj;
-    Layer post_attn_add;
-    Layer post_mlp_add;
+    Layer norm;
+    Layer up_proj;
+    Layer act;
+    Layer down_proj;
+    Layer residual_add;
 
 public:
     ViTMLPNPU() = default;
     ViTMLPNPU(const ViTConfig &config, const string &base_name) {
         int hidden_dim = config.hidden_dim;
-        int intermediate_size = config.hidden_dim * 4; // MLP typically uses 4x hidden size
+        int ffn_hidden = config.ffn_hidden;
 
-        pre_mlp_view = View(1, vit::closestFactors(config.img_hw).first,
-                            vit::closestFactors(config.img_hw).second, hidden_dim,
-                            base_name + "mlp_view1");
-
-        mlp_fc1 = Linear(hidden_dim, intermediate_size, true, base_name + "mlp.fc1");
-        mlp_act = GELU(base_name + "mlp.act");
-        mlp_fc2 = Linear(intermediate_size, hidden_dim, true, base_name + "mlp.fc2");
-
-        post_mlp_view = View(1, 1, -1, hidden_dim, base_name + "mlp_view2");
-
-        layernorm = LayerNorm(hidden_dim, true, 1e-6, base_name + "layernorm");
-        out_proj = Linear(hidden_dim, hidden_dim, true, base_name + "proj");
-
-        post_attn_add = Add(base_name + "attn_residual");
-        post_mlp_add = Add(base_name + "mlp_residual");
+        norm = LayerNorm(hidden_dim, true, 1e-6, base_name + "layernorm_2");
+        up_proj = Linear(hidden_dim, ffn_hidden, true, base_name + "mlp.fc1");
+        act = GELU(base_name + "mlp.act");
+        down_proj = Linear(ffn_hidden, hidden_dim, true, base_name + "mlp.fc2");
+        residual_add = Add(base_name + "mlp.residual");
     }
 
     vector<Tensor> Forward(vector<Tensor> inputs, vector<std::any> args) override {
-        auto attn_output = inputs[0];
+        auto x = inputs[0];
         auto residual = inputs[1];
 
-        auto x = post_attn_add(attn_output, residual);
-        x = layernorm(x);
+        x = norm(x);
+        x = up_proj(x);
+        x = act(x);
+        x = down_proj(x);
+        x = residual_add(x, residual);
 
-        x = pre_mlp_view(x);
-        x = mlp_fc1(x);
-        x = mlp_act(x);
-        x = mlp_fc2(x);
-        x = post_mlp_view(x);
-
-        x = post_mlp_add(x, residual);
         return {x};
     }
 };
@@ -168,17 +147,21 @@ public:
 class ViTModel_NPU final : public Module {
 public:
     ViTModel_NPU() = default;
-    ViTModel_NPU(const ViTConfig &config) {
-        this->config = config; // Store config for later use
+    explicit ViTModel_NPU(const ViTConfig &config) {
+        this->config = config;
 
-        patch_embed = Linear(config.patch * config.patch * 3, config.hidden_dim, true, "patch_embed");
+        // Create patch embedding using convolution
+        patch_embed = Convolution2D(3, config.hidden_dim,
+                                    {config.patch, config.patch},
+                                    {config.patch, config.patch},
+                                    VALID, true, "patch_embedding");
 
         cls_token = Parameter(1, 1, 1, config.hidden_dim, "cls_token");
         pos_embed = Parameter(1, 1, (config.img_hw * config.img_hw / (config.patch * config.patch)) + 1,
-                              config.hidden_dim, "pos_embed");
+                              config.hidden_dim, "position_embeddings");
 
         // Create encoder blocks
-        for (int i = 0; i < config.ffn_hidden; i++) {
+        for (int i = 0; i < config.block_num; i++) {
             string base_name = "encoder.layer." + std::to_string(i) + ".";
 
             auto attn_npu = std::make_unique<ViTAttentionNPUPart1>(config, base_name);
@@ -194,47 +177,38 @@ public:
             mlp_layers.push_back(std::move(mlp));
         }
 
-        layernorm = LayerNorm(config.hidden_dim, true, 1e-6, "layernorm");
+        norm = LayerNorm(config.hidden_dim, true, 1e-6, "layernorm");
+        lm_head = Linear(config.hidden_dim, config.class_size, false, "classifier");
     }
 
     vector<Tensor> Forward(vector<Tensor> inputs, vector<std::any> args) override {
-        // Reshape input for patch embedding
-        auto B = inputs[0].batch();
-        auto H = config.img_hw;
-        auto W = config.img_hw;
-        auto P = config.patch;
-
-        // Reshape and patch embedding
-        inputs[0].reshape(B, 1, (H / P) * (W / P), P * P * 3);
         auto x = patch_embed(inputs[0]);
+        x = x.transpose({{SEQUENCE, DIMENSION}, {HEAD, SEQUENCE}});
+        x = x.flatten(HEAD, SEQUENCE);
 
-        // Add cls token and position embeddings
         auto cls = cls_token();
         cls = cls.expand(x.batch(), 1, 1, x.dimension());
-
-        // Use Tensor::cat with proper Chl enum
         x = Tensor::cat({cls, x}, Chl::SEQUENCE);
         x = x + pos_embed();
 
-        // Process through encoder blocks
         for (size_t i = 0; i < attention_npu_layers.size(); i++) {
             auto residual = x;
 
-            // NPU attention part 1
             x = Tensor::toQNN({x})[0];
             auto qkv = attention_npu_layers[i]->Forward({x}, {});
 
-            // CPU attention part
             qkv = Tensor::toCPU(qkv);
             auto attn_output = attention_cpu_layers[i]->Forward(qkv, {})[0];
 
-            // NPU MLP part
             auto npu_tensors = Tensor::toQNN({attn_output, residual});
             x = mlp_layers[i]->Forward({npu_tensors[0], npu_tensors[1]}, {})[0];
             x = Tensor::toCPU({x})[0];
         }
 
-        x = layernorm(x);
+        x = x.clip({}, {}, {0}, {});
+        x = norm(x);
+        x = lm_head(x);
+
         return {x};
     }
 
@@ -245,8 +219,9 @@ private:
     vector<unique_ptr<ViTAttentionNPUPart1>> attention_npu_layers;
     vector<unique_ptr<ViTAttentionCPU>> attention_cpu_layers;
     vector<unique_ptr<ViTMLPNPU>> mlp_layers;
-    Layer layernorm;
-    ViTConfig config; // Store config for use in Forward
+    Layer norm;
+    Layer lm_head;
+    ViTConfig config;
 };
 
 } // namespace mllm
