@@ -27,9 +27,13 @@ int main(int argc, char **argv) {
                            "../assets/bird_image.jpg",
                            "../assets/car_image.jpg",
                            "../assets/bus.png"};
+
     for (auto &img : imgs) {
         auto input_tensor = processor.process(img, 224);
+        auto start_time = mllm_time_us();
         auto result = model({input_tensor});
+        auto end_time = mllm_time_us();
+        std::cout << "DEBUGGING - Inference Time = " << (end_time - start_time) / 1000.0F << "ms" << std::endl;
         auto token_idx = processor.postProcess(result[0]);
         std::cout << imagenet_id2label[token_idx] << std::endl;
     }
