@@ -44,12 +44,12 @@ public:
         int head_size = config.head_size;
         int head_dim = hidden_dim / head_size;
 
-        pre_attn_view = View(-1, 1, -1, head_size * head_dim, base_name + "attn_split_view");
+        pre_attn_view = View(-1, 1, -1, head_size * head_dim, base_name + "attn_split_view"); // TODO: Do we need pre_attn_view?
 
         // Match original ViT naming
-        q_proj = Linear(hidden_dim, hidden_dim, true, base_name + "attention.query");
-        k_proj = Linear(hidden_dim, hidden_dim, true, base_name + "attention.key");
-        v_proj = Linear(hidden_dim, hidden_dim, true, base_name + "attention.value");
+        q_proj = Linear(hidden_dim, hidden_dim, true, base_name + "attention.attention.query");
+        k_proj = Linear(hidden_dim, hidden_dim, true, base_name + "attention.attention.key");
+        v_proj = Linear(hidden_dim, hidden_dim, true, base_name + "attention.attention.value");
 
         q_view = View(-1, head_size, -1, head_dim, base_name + "query_view");
         k_view = View(-1, head_size, -1, head_dim, base_name + "key_view");
@@ -154,15 +154,15 @@ public:
         patch_embed = Convolution2D(3, config.hidden_dim,
                                     {config.patch, config.patch},
                                     {config.patch, config.patch},
-                                    VALID, true, "patch_embedding");
+                                    VALID, true, "vit.embeddings.patch_embeddings.projection");
 
-        cls_token = Parameter(1, 1, 1, config.hidden_dim, "cls_token");
+        cls_token = Parameter(1, 1, 1, config.hidden_dim, "vit.embeddings.cls_token");
         pos_embed = Parameter(1, 1, (config.img_hw * config.img_hw / (config.patch * config.patch)) + 1,
-                              config.hidden_dim, "position_embeddings");
+                              config.hidden_dim, "vit.embeddings.position_embeddings");
 
         // Create encoder blocks
         for (int i = 0; i < config.block_num; i++) {
-            string base_name = "encoder.layer." + std::to_string(i) + ".";
+            string base_name = "vit.encoder.layer." + std::to_string(i) + ".";
 
             auto attn_npu = std::make_unique<ViTAttentionNPUPart1>(config, base_name);
             auto attn_cpu = std::make_unique<ViTAttentionCPU>(config, base_name);
