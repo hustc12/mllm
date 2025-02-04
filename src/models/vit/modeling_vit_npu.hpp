@@ -73,11 +73,13 @@ public:
         key_states = k_view(key_states);
         value_states = v_view(value_states);
 
-        query_states = q_dequant(query_states);
-        key_states = k_dequant(key_states);
-        value_states = v_dequant(value_states);
+        // TODO: Do we need dequantize?
+        // query_states = q_dequant(query_states);
+        // key_states = k_dequant(key_states);
+        // value_states = v_dequant(value_states);
 
         value_states = v_transpose(value_states);
+        // cout << "DEBUGGING: " << value_states.shape() << endl;
         return {query_states, key_states, value_states};
     }
 };
@@ -122,10 +124,10 @@ public:
         int hidden_dim = config.hidden_dim;
         int ffn_hidden = config.ffn_hidden;
 
-        norm = LayerNorm(hidden_dim, true, 1e-6, base_name + "layernorm_2");
-        up_proj = Linear(hidden_dim, ffn_hidden, true, base_name + "mlp.fc1");
-        act = GELU(base_name + "mlp.act");
-        down_proj = Linear(ffn_hidden, hidden_dim, true, base_name + "mlp.fc2");
+        norm = LayerNorm(hidden_dim, true, 1e-6, base_name + "layernorm_after");
+        up_proj = Linear(hidden_dim, ffn_hidden, true, base_name + "intermediate.dense");
+        act = GELU(base_name + "intermediate.intermediate.act");
+        down_proj = Linear(ffn_hidden, hidden_dim, true, base_name + "output.dense");
         residual_add = Add(base_name + "mlp.residual");
     }
 
@@ -170,6 +172,7 @@ public:
 
             attn_npu->to(MLLM_QNN);
             attn_cpu->to(MLLM_CPU);
+            // attn_cpu->to(MLLM_QNN);
             mlp->to(MLLM_QNN);
 
             attention_npu_layers.push_back(std::move(attn_npu));
@@ -177,7 +180,7 @@ public:
             mlp_layers.push_back(std::move(mlp));
         }
 
-        norm = LayerNorm(config.hidden_dim, true, 1e-6, "layernorm");
+        norm = LayerNorm(config.hidden_dim, true, 1e-6, "vit.encoder.layer.0.layernorm_before");
         lm_head = Linear(config.hidden_dim, config.class_size, false, "classifier");
     }
 
