@@ -4,7 +4,7 @@
 
 #include <iostream>
 #include "cmdline.h"
-#include "models/tinyllama/modeling_tinyllama.hpp"
+#include "models/tinyllama/modeling_tinyllama_dsp.hpp"
 #include "models/llama/tokenization_llama.hpp"
 #include "processor/PostProcess.hpp"
 
@@ -29,7 +29,7 @@ int main(int argc, char **argv) {
     tokenizer.set_chat_template(system_prompt_start, system_prompt_end);
 
     TinyLLaMAConfig config(tokens_limit, "1.5B", HFHUBROPE);
-    auto model = TinyLLaMAModel(config);
+    auto model = TinyLLaMAModel_DSP(config);
     model.load(model_path);
 
     vector<string> in_strs = {
