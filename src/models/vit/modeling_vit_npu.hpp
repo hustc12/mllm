@@ -63,23 +63,22 @@ public:
     }
 
     vector<Tensor> Forward(vector<Tensor> inputs, vector<std::any> args) override {
-        auto x = pre_attn_view(inputs[0]);
-
+        // auto x = pre_attn_view(inputs[0]);
+        auto x = inputs[0];
         auto query_states = q_proj(x);
         auto key_states = k_proj(x);
         auto value_states = v_proj(x);
 
-        query_states = q_view(query_states);
-        key_states = k_view(key_states);
-        value_states = v_view(value_states);
+        // query_states = q_view(query_states);
+        // key_states = k_view(key_states);
+        // value_states = v_view(value_states);
 
         // TODO: Do we need dequantize?
         // query_states = q_dequant(query_states);
         // key_states = k_dequant(key_states);
         // value_states = v_dequant(value_states);
 
-        value_states = v_transpose(value_states);
-        // cout << "DEBUGGING: " << value_states.shape() << endl;
+        // value_states = v_transpose(value_states);
         return {query_states, key_states, value_states};
     }
 };
@@ -105,7 +104,7 @@ public:
         qk = softmax(qk);
         auto o = Tensor::mm(qk, v);
 
-        o = o_quantize(o);
+        // o = o_quantize(o);
         return {o};
     }
 };
@@ -140,7 +139,38 @@ public:
         x = act(x);
         x = down_proj(x);
         x = residual_add(x, residual);
+        return {x};
+    }
+};
 
+// Add this class before ViTModel_NPU
+class ViTEmbeddingNPU final : public Module {
+    Layer patch_embed;
+    Parameter cls_token;
+    Parameter pos_embed;
+
+public:
+    ViTEmbeddingNPU() = default;
+    ViTEmbeddingNPU(const ViTConfig &config) {
+        patch_embed = Convolution2D(3, config.hidden_dim,
+                                    {config.patch, config.patch},
+                                    {config.patch, config.patch},
+                                    VALID, true, "vit.embeddings.patch_embeddings.projection");
+
+        cls_token = Parameter(1, 1, 1, config.hidden_dim, "vit.embeddings.cls_token");
+        pos_embed = Parameter(1, (config.img_hw * config.img_hw / (config.patch * config.patch)) + 1,
+                              1, config.hidden_dim, "vit.embeddings.position_embeddings");
+    }
+
+    vector<Tensor> Forward(vector<Tensor> inputs, vector<std::any> args) override {
+        auto x = patch_embed(inputs[0]);
+        x = x.transpose({{SEQUENCE, DIMENSION}, {HEAD, SEQUENCE}});
+        x = x.flatten(HEAD, SEQUENCE);
+
+        auto cls = cls_token();
+        cls = cls.expand(x.batch(), 1, 1, x.dimension());
+        x = Tensor::cat({cls, x}, Chl::SEQUENCE);
+        x = x + pos_embed();
         return {x};
     }
 };
@@ -151,16 +181,7 @@ public:
     ViTModel_NPU() = default;
     explicit ViTModel_NPU(const ViTConfig &config) {
         this->config = config;
-
-        // Create patch embedding using convolution
-        patch_embed = Convolution2D(3, config.hidden_dim,
-                                    {config.patch, config.patch},
-                                    {config.patch, config.patch},
-                                    VALID, true, "vit.embeddings.patch_embeddings.projection");
-
-        cls_token = Parameter(1, 1, 1, config.hidden_dim, "vit.embeddings.cls_token");
-        pos_embed = Parameter(1, 1, (config.img_hw * config.img_hw / (config.patch * config.patch)) + 1,
-                              config.hidden_dim, "vit.embeddings.position_embeddings");
+        embedding = ViTEmbeddingNPU(config);
 
         // Create encoder blocks
         for (int i = 0; i < config.block_num; i++) {
@@ -172,7 +193,6 @@ public:
 
             attn_npu->to(MLLM_QNN);
             attn_cpu->to(MLLM_CPU);
-            // attn_cpu->to(MLLM_QNN);
             mlp->to(MLLM_QNN);
 
             attention_npu_layers.push_back(std::move(attn_npu));
@@ -185,14 +205,7 @@ public:
     }
 
     vector<Tensor> Forward(vector<Tensor> inputs, vector<std::any> args) override {
-        auto x = patch_embed(inputs[0]);
-        x = x.transpose({{SEQUENCE, DIMENSION}, {HEAD, SEQUENCE}});
-        x = x.flatten(HEAD, SEQUENCE);
-
-        auto cls = cls_token();
-        cls = cls.expand(x.batch(), 1, 1, x.dimension());
-        x = Tensor::cat({cls, x}, Chl::SEQUENCE);
-        x = x + pos_embed();
+        auto x = embedding(inputs, args)[0];
 
         for (size_t i = 0; i < attention_npu_layers.size(); i++) {
             auto residual = x;
@@ -204,9 +217,11 @@ public:
             auto attn_output = attention_cpu_layers[i]->Forward(qkv, {})[0];
 
             auto npu_tensors = Tensor::toQNN({attn_output, residual});
+            // auto npu_tensors = Tensor::toCPU({attn_output, residual});
             x = mlp_layers[i]->Forward({npu_tensors[0], npu_tensors[1]}, {})[0];
-            x = Tensor::toCPU({x})[0];
+            // x = Tensor::toCPU({x})[0];
         }
+        x = Tensor::toCPU({x})[0];
 
         x = x.clip({}, {}, {0}, {});
         x = norm(x);
@@ -216,9 +231,7 @@ public:
     }
 
 private:
-    Layer patch_embed;
-    Parameter cls_token;
-    Parameter pos_embed;
+    ViTEmbeddingNPU embedding;
     vector<unique_ptr<ViTAttentionNPUPart1>> attention_npu_layers;
     vector<unique_ptr<ViTAttentionCPU>> attention_cpu_layers;
     vector<unique_ptr<ViTMLPNPU>> mlp_layers;
