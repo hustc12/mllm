@@ -27,10 +27,10 @@ int main(int argc, char **argv) {
 
     // Test images
     vector<string> imgs = {
-        "../assets/cat.jpg",
-        "../assets/dog_image.jpg",
-        "../assets/bird_image.jpg",
-        "../assets/car_image.jpg",
+        // "../assets/cat.jpg",
+        // "../assets/dog_image.jpg",
+        // "../assets/bird_image.jpg",
+        // "../assets/car_image.jpg",
         "../assets/bus.png"};
 
     // Process each image
@@ -43,7 +43,10 @@ int main(int argc, char **argv) {
             std::string graph_name = "vit_graph_" + std::to_string(rand());
 
             // Run inference on NPU
+            auto start_time = mllm_time_us();
             auto result = model({input_tensor}, graph_name);
+            auto end_time = mllm_time_us();
+            std::cout << "DEBUGGING - Inference Time = " << (end_time - start_time) / 1000.0F << "ms" << std::endl;
 
             // Post-process results
             auto token_idx = processor.postProcess(result[0]);
