@@ -112,6 +112,9 @@ public:
         dataLoader_ = dataLoader;
     }
 
+    void prefetchTensorData(shared_ptr<Tensor> tensor);
+    void prefetchMemory(void *ptr, size_t size);
+
 private:
     qnn_wrapper_api::ModelError_t graphFinilize();
     qnn_wrapper_api::ModelError_t graphConfig();

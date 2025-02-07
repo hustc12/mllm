@@ -53,7 +53,33 @@ void QNNGraph::setUpTensors(std::string name) {
 
 // WARNING: non virtual override function, all features should be merged into the origin function
 const vector<shared_ptr<Tensor>> &QNNGraph::forward(std::string graphName) {
-    for (const auto &op_name : op_names_) {
+    for (size_t i = 0; i < op_names_.size(); i++) {
+        std::cout << "DEBUGGING - Forwarding operation: " << op_names_[i] << std::endl;
+        const auto &op_name = op_names_[i];
+
+        // Layer-aware prefetching for next operation
+        if (i + 1 < op_names_.size()) {
+            const auto &next_op_name = op_names_[i + 1];
+            if (ops_not_inputs_empty_[next_op_name]) {
+                auto &next_inputs = ops_input_tensors_[next_op_name];
+
+                // Prefetch input tensors for next operation
+                for (auto &next_tensor : next_inputs) {
+                    std::cout << "DEBUGGING - Prefetching tensor: " << next_tensor->name() << std::endl;
+                    if (next_tensor) {
+                        std::cout << "DEBUGGING - Tensor is not null" << std::endl;
+                        auto *qnn_backend = dynamic_cast<QNNBackend *>(this->backend_);
+                        if (qnn_backend) {
+                            qnn_backend->prefetchTensorData(next_tensor);
+                        }
+                    } else {
+                        std::cout << "DEBUGGING - Tensor is null" << std::endl;
+                    }
+                }
+            }
+        }
+
+        // Execute current operation
         if (ops_not_inputs_empty_[op_name]) {
 #ifdef SAVECHECK
             for (auto &t : ops_input_tensors_[op_name]) {
@@ -86,7 +112,7 @@ const vector<shared_ptr<Tensor>> &QNNGraph::forward(std::string graphName) {
             //            std::cout<<"op_name:"<<op_name<<" is not do"<<std::endl;
         }
     }
-    
+
     this->backend_->onExecuteStart(ops_input_tensors_[op_names_[0]], ops_output_tensors_[op_names_[op_names_.size() - 1]], graphName);
 
     return ops_output_tensors_[op_names_[op_names_.size() - 1]];

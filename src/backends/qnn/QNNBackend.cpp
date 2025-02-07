@@ -764,4 +764,51 @@ StatusCode QNNBackend::freeDevice() {
     return StatusCode::SUCCESS;
 }
 
+void QNNBackend::prefetchTensorData(shared_ptr<Tensor> tensor) {
+    if (!tensor || !tensor->hostPtr<void>()) {
+        return;
+    }
+
+    // Get tensor size in bytes
+    size_t tensorSize = tensor->cntSize();
+    void *dataPtr = tensor->hostPtr<void>();
+
+    prefetchMemory(dataPtr, tensorSize);
+}
+
+void QNNBackend::prefetchMemory(void *ptr, size_t size) {
+    std::cout << "DEBUGGING - Prefetching memory" << std::endl;
+#ifdef __hexagon__
+    // For Hexagon DSP
+    const size_t cacheLine = 128; // Hexagon cache line size
+    float *p = static_cast<float *>(ptr);
+
+    // Prefetch to L2 cache first
+    for (size_t i = 0; i < size; i += cacheLine) {
+        // Configure L2 prefetch parameters similar to Softmax example
+        uint32_t height = 0x40; // 64 lines
+        uint32_t width = 0x80;  // 128 bytes
+        uint32_t config = (width << 16) | (height << 8) | 0x40;
+        Q6_l2fetch_AR(p + i, config); // L2 cache prefetch with configuration
+    }
+
+    // Then prefetch to L1 cache
+    for (size_t i = 0; i < size; i += cacheLine) {
+        Q6_dcfetch_A(p + i); // L1 data cache prefetch
+    }
+#elif defined(__ARM_ARCH)
+    // For ARM architectures
+    const size_t cacheLine = 64; // typical ARM cache line size
+    char *p = static_cast<char *>(ptr);
+
+    for (size_t i = 0; i < size; i += cacheLine) {
+        __builtin_prefetch(p + i, 0, 3); // prefetch for read with high temporal locality
+    }
+#else
+    // For other architectures
+    (void)ptr;
+    (void)size;
+#endif
+}
+
 } // namespace mllm
