@@ -18,9 +18,11 @@ struct PrefetchConfig {
     static constexpr size_t L1_CACHE_LINE = 64;
     static constexpr size_t L2_CACHE_LINE = 128;
     static constexpr bool ENABLE_DOUBLE_BUFFERING = true;
-    // Add size thresholds
-    static constexpr size_t MIN_PREFETCH_SIZE = 1024 * 64;       // 64KB
-    static constexpr size_t LARGE_TENSOR_THRESHOLD = 1024 * 256; // 256KB
+    // Cache hierarchy configuration
+    static constexpr size_t L1_CACHE_SIZE = 32 * 1024;     // 32KB L1 cache
+    static constexpr size_t L2_CACHE_SIZE = 512 * 1024;    // 512KB L2 cache
+    static constexpr size_t L1_PREFETCH_SIZE = 16 * 1024;  // 16KB prefetch window for L1
+    static constexpr size_t L2_PREFETCH_SIZE = 128 * 1024; // 128KB prefetch window for L2
 };
 
 // Add prefetching helper functions
@@ -103,23 +105,66 @@ void prefetchMemory(void *ptr, size_t size) {
 #endif
 }
 
+// Hierarchical prefetching for different cache levels
+void prefetchHierarchical(void *ptr, size_t size) {
+#ifdef __hexagon__
+    float *p = static_cast<float *>(ptr);
+
+    // L2 cache prefetching - larger blocks
+    const size_t l2_block = PrefetchConfig::L2_CACHE_LINE * 16; // 2KB blocks
+    for (size_t i = 0; i < size; i += l2_block) {
+        size_t block_end = std::min(i + l2_block, size);
+        // Aggressive L2 prefetch
+        for (size_t j = i; j < block_end; j += PrefetchConfig::L2_CACHE_LINE) {
+            uint32_t config = (0x80 << 16) | (0x40 << 8) | 0x40;
+            Q6_l2fetch_AR(p + j, config);
+        }
+
+        // L1 cache prefetching - smaller blocks for hot data
+        size_t l1_window = std::min(block_end - i, PrefetchConfig::L1_PREFETCH_SIZE);
+        for (size_t j = i; j < i + l1_window; j += PrefetchConfig::L1_CACHE_LINE) {
+            Q6_dcfetch_A(p + j);
+        }
+    }
+#else
+    char *p = static_cast<char *>(ptr);
+
+    // Simulate hierarchical prefetching on non-Hexagon architectures
+    const size_t l2_block = 4096; // 4KB blocks for L2-like prefetching
+    const size_t l1_block = 256;  // 256B blocks for L1-like prefetching
+
+    for (size_t i = 0; i < size; i += l2_block) {
+        // L2-like prefetching
+        for (size_t j = i; j < std::min(i + l2_block, size); j += PrefetchConfig::L1_CACHE_LINE) {
+            __builtin_prefetch(p + j, 0, 2); // Lower temporal locality for L2
+        }
+
+        // L1-like prefetching for hot data
+        size_t l1_window = std::min(size - i, l1_block);
+        for (size_t j = i; j < i + l1_window; j += PrefetchConfig::L1_CACHE_LINE) {
+            __builtin_prefetch(p + j, 0, 3); // Higher temporal locality for L1
+        }
+    }
+#endif
+}
+
 void prefetchTensorData(Tensor &tensor) {
     if (!tensor.hostPtr<void>()) {
         return;
     }
     size_t tensorSize = tensor.cntSize();
-
-    // Only prefetch if tensor is large enough
-    if (tensorSize < PrefetchConfig::MIN_PREFETCH_SIZE) {
-        return;
-    }
-
     void *dataPtr = tensor.hostPtr<void>();
-    // Use different strategies for different sizes
-    if (tensorSize > PrefetchConfig::LARGE_TENSOR_THRESHOLD) {
-        prefetchLargeTensor(dataPtr, tensorSize);
-    } else {
+
+    // Choose prefetch strategy based on tensor size
+    if (tensorSize <= PrefetchConfig::L1_CACHE_SIZE) {
+        // Small tensors - only L1 prefetch
         prefetchMemory(dataPtr, tensorSize);
+    } else if (tensorSize <= PrefetchConfig::L2_CACHE_SIZE) {
+        // Medium tensors - L1 + L2 prefetch
+        prefetchHierarchical(dataPtr, tensorSize);
+    } else {
+        // Large tensors - block-based hierarchical prefetch
+        prefetchLargeTensor(dataPtr, tensorSize);
     }
 }
 } // namespace
