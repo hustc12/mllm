@@ -7,8 +7,66 @@
 #include "Tensor.hpp"
 #include "Types.hpp"
 #include "configuration_vit.hpp"
+// #include "backends/qnn/QNNBackend.hpp"
+// #include "backends/qnn/QNNGraph.hpp"
+#include "hexagon_protos.h"
 
 namespace mllm {
+
+// Add prefetching helper functions
+namespace {
+void prefetchMemory(void *ptr, size_t size) {
+    // std::cout << "DEBUGGING - Prefetching memory" << std::endl;
+#ifdef __hexagon__
+    // For Hexagon DSP
+    const size_t cacheLine = 128; // Hexagon cache line size
+    float *p = static_cast<float *>(ptr);
+
+    // Prefetch to L2 cache first
+    for (size_t i = 0; i < size; i += cacheLine) {
+        // Configure L2 prefetch parameters
+        uint32_t height = 0x40; // 64 lines
+        uint32_t width = 0x80;  // 128 bytes
+        uint32_t config = (width << 16) | (height << 8) | 0x40;
+        Q6_l2fetch_AR(p + i, config);
+    }
+
+    // Then prefetch to L1 cache
+    for (size_t i = 0; i < size; i += cacheLine) {
+        Q6_dcfetch_A(p + i);
+    }
+#elif defined(__ARM_ARCH__)
+    // For ARM architectures
+    const size_t cacheLine = 64; // typical ARM cache line size
+    char *p = static_cast<char *>(ptr);
+
+    for (size_t i = 0; i < size; i += cacheLine) {
+        __builtin_prefetch(p + i, 0, 3);
+    }
+#else
+    // For other architectures
+    // (void)ptr;
+    // (void)size;
+
+    const size_t cacheLine = 128; // typical ARM cache line size
+    char *p = static_cast<char *>(ptr);
+
+    for (size_t i = 0; i < size; i += cacheLine) {
+        __builtin_prefetch(p + i, 0, 3);
+    }
+
+#endif
+}
+
+void prefetchTensorData(Tensor &tensor) {
+    if (!tensor.hostPtr<void>()) {
+        return;
+    }
+    size_t tensorSize = tensor.cntSize();
+    void *dataPtr = tensor.hostPtr<void>();
+    prefetchMemory(dataPtr, tensorSize);
+}
+} // namespace
 
 // Helper function for NPU optimization
 namespace vit {
@@ -207,7 +265,18 @@ public:
     vector<Tensor> Forward(vector<Tensor> inputs, vector<std::any> args) override {
         auto x = embedding(inputs, args)[0];
 
+        // Prefetch first layer's data if using QNN backend
+        if (!attention_npu_layers.empty() && x.device() == MLLM_QNN) {
+            prefetchTensorData(x);
+        }
+
         for (size_t i = 0; i < attention_npu_layers.size(); i++) {
+            // Prefetch next layer's data if available and using QNN backend
+            if (i + 1 < attention_npu_layers.size() && x.device() == MLLM_QNN) {
+                auto next_residual = x;
+                prefetchTensorData(next_residual);
+            }
+
             auto residual = x;
 
             x = Tensor::toQNN({x})[0];
@@ -217,10 +286,14 @@ public:
             auto attn_output = attention_cpu_layers[i]->Forward(qkv, {})[0];
 
             auto npu_tensors = Tensor::toQNN({attn_output, residual});
-            // auto npu_tensors = Tensor::toCPU({attn_output, residual});
             x = mlp_layers[i]->Forward({npu_tensors[0], npu_tensors[1]}, {})[0];
-            // x = Tensor::toCPU({x})[0];
+
+            // Prefetch MLP layer data if available and using QNN backend
+            if (i + 1 < mlp_layers.size() && x.device() == MLLM_QNN) {
+                prefetchTensorData(x);
+            }
         }
+
         x = Tensor::toCPU({x})[0];
 
         x = x.clip({}, {}, {0}, {});
