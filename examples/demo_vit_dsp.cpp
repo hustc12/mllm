@@ -46,7 +46,7 @@ int main(int argc, char **argv) {
             auto start_time = mllm_time_us();
             auto result = model({input_tensor}, graph_name);
             auto end_time = mllm_time_us();
-            std::cout << "DEBUGGING - Inference Time = " << (end_time - start_time) / 1000.0F << "ms" << std::endl;
+            std::cout << "DEBUGGING - Inference Time = " << (end_time - start_time) / 1000.0F << " ms" << std::endl;
 
             // Post-process results
             auto token_idx = processor.postProcess(result[0]);
