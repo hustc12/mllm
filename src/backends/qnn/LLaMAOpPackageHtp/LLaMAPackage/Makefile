@@ -51,11 +51,11 @@ $(info "HEXAGON_SDK_ROOT is [${HEXAGON_SDK_ROOT}]")
 
 VERSION := $(shell basename $(HEXAGON_SDK_ROOT))
 MAJOR_VERSION := $(shell echo $(VERSION) | cut -d. -f1)
-ifeq ($(shell [ $(MAJOR_VERSION) -ge 5 ] && echo true),true)
-    $(info Hexagon SDK Version is greater than or equal to 5)
-else
-    $(error mllm currently only supports htp >= v75 and hexagon sdk >= 5.4.0)
-endif
+# ifeq ($(shell [ $(MAJOR_VERSION) -ge 5 ] && echo true),true)
+#     $(info Hexagon SDK Version is greater than or equal to 5)
+# else
+#     $(error mllm currently only supports htp >= v75 and hexagon sdk >= 5.4.0)
+# endif
 
 # Users should note that the tools version may change between hexagon sdk versions
 # Following combination of SDK and Tool version is supported
