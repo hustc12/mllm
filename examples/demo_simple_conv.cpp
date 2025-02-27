@@ -1,5 +1,6 @@
 #include "models/simple_conv/configuration_simple_conv.hpp"
 #include "models/simple_conv/modeling_simple_conv.hpp"
+#include "models/simple_conv/processing_simple_conv.hpp"
 #include "cmdline.h"
 #include <vector>
 
@@ -13,21 +14,27 @@ int main(int argc, char *argv[]) {
     CPUBackend::cpu_threads = cmdParser.get<int>("thread");
 
     // Create config and model
+    auto processor = SimpleConvProcessor();
+
     auto config = SimpleConfig();
     auto model = SimpleModel(config);
     model.load(model_path);
 
     // Create a dummy input tensor (1, 3, 32, 32)
     // Tensor input(1, 3, 32, 32, Backend::global_backends[MLLM_CPU], true);
-    vector<int> shape = {1, 3, 32, 32};
-    Tensor input(shape);
-    input.setName("input");
-    input.alloc();
-    input.fullData(1.0f);
+    // vector<int> shape = {1, 3, 32, 32};
+    // Tensor input(shape);
+    // input.setName("input");
+    // input.alloc();
+    // input.fullData(1.0f);
 
-    // Run inference
-    auto output = model({input})[0];
-    output.printData<float>();
+    string imgs = "../assets/cat.jpg";
+    auto input_tensor = processor.process(imgs, 224);
+    // input_tensor.printData<float>();
+
+    // // Run inference
+    auto output = model({input_tensor})[0];
+    // output.printData<float>();
 
     return 0;
 }
