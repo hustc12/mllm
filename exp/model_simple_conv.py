@@ -1,3 +1,4 @@
+import os
 import torch
 import torch.nn as nn
 
@@ -24,11 +25,16 @@ print(f"Input shape: {dummy_input.shape}")
 print(f"Output shape: {output.shape}")
 
 # Save the model
-torch.save(model.state_dict(), 'simple_conv_model.pth')
-print("Model saved as 'simple_conv_model.pth'")
+dest_path = os.path.join(os.path.dirname(os.getcwd()), 'models')
+if (os.path.exists(dest_path) == False):
+    os.makedirs(dest_path)
+
+model_path = os.path.join(dest_path, 'simple_conv_model.pth')
+
+torch.save(model.state_dict(), model_path)
+print(f"Model saved to {model_path}")
 
 print('***************************')
-model_path = "simple_conv_model.pth"
 model = torch.load(model_path)
 for key in model:
     print(f"{key}  Shape: {model[key].shape}")
