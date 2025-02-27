@@ -1,16 +1,17 @@
 #!/bin/bash
 
-adb shell mkdir -p /data/local/tmp/mllm/vocab
+# adb shell mkdir -p /data/local/tmp/mllm/vocab
 adb shell mkdir -p /data/local/tmp/mllm/qnn-lib
 
-adb push ../vocab/qwen_vocab.mllm /data/local/tmp/mllm/vocab/
+# adb push ../vocab/qwen_vocab.mllm /data/local/tmp/mllm/vocab/
 
+adb push ../models/simple_conv_model.mllm "/data/local/tmp/mllm/models/simple_conv_model.mllm"
 
-if ! adb shell [ -f "/data/local/tmp/mllm/models/simple_conv_model.mllm" ]; then
-    adb push ../models/simple_conv_model.mllm "/data/local/tmp/mllm/models/simple_conv_model.mllm"
-else
-    echo "simple_conv_model.mllm file already exists"
-fi
+# if ! adb shell [ -f "/data/local/tmp/mllm/models/simple_conv_model.mllm" ]; then
+#     adb push ../models/simple_conv_model.mllm "/data/local/tmp/mllm/models/simple_conv_model.mllm"
+# else
+#     echo "simple_conv_model.mllm file already exists"
+# fi
 
 
 
