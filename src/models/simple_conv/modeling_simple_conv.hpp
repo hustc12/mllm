@@ -3,7 +3,7 @@
 
 #include "Layer.hpp"
 #include "Types.hpp"
-#include "configuration_simple.hpp"
+#include "configuration_simple_conv.hpp"
 #include <vector>
 
 using namespace mllm;

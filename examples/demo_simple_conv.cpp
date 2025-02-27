@@ -1,5 +1,5 @@
-#include "models/simple/configuration_simple.hpp"
-#include "models/simple/modeling_simple.hpp"
+#include "models/simple_conv/configuration_simple_conv.hpp"
+#include "models/simple_conv/modeling_simple_conv.hpp"
 #include "cmdline.h"
 #include <vector>
 
