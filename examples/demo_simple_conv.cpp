@@ -33,7 +33,10 @@ int main(int argc, char *argv[]) {
     // input_tensor.printData<float>();
 
     // // Run inference
+    auto start_time = mllm_time_us();
     auto output = model({input_tensor})[0];
+    auto end_time = mllm_time_us();
+    std::cout << "Inference Time = " << (end_time - start_time) / 1000.0F << "ms" << std::endl;
     // output.printData<float>();
 
     return 0;
