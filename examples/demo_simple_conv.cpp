@@ -18,7 +18,12 @@ int main(int argc, char *argv[]) {
     model.load(model_path);
 
     // Create a dummy input tensor (1, 3, 32, 32)
-    auto input = Tensor::randn({1, 3, 32, 32});
+    // Tensor input(1, 3, 32, 32, Backend::global_backends[MLLM_CPU], true);
+    vector<int> shape = {1, 3, 32, 32};
+    Tensor input(shape);
+    input.setName("input");
+    input.alloc();
+    input.fullData(1.0f);
 
     // Run inference
     auto output = model({input})[0];
