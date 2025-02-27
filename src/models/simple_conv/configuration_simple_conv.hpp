@@ -10,9 +10,19 @@ using namespace std;
 class SimpleNameConfig {
 public:
     void init() {
-        conv_name = "conv";
+        conv1_name = "conv1";
+        conv2_name = "conv2";
+        conv3_name = "conv3";
+        // relu3_name = "relu3";
+        conv4_name = "conv4";
+        // relu4_name = "relu4";
+        relu_name = "relu";
     }
-    string conv_name;
+    string conv1_name;
+    string conv2_name;
+    string conv3_name;
+    string conv4_name;
+    string relu_name;
 };
 
 struct SimpleConfig {

@@ -5,12 +5,21 @@ import torch.nn as nn
 class SimpleConvNet(nn.Module):
     def __init__(self, in_channels=3, out_channels=64, kernel_size=3):
         super(SimpleConvNet, self).__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, padding=1)
-        # self.relu = nn.ReLU()
+        self.conv1 = nn.Conv2d(in_channels, out_channels, kernel_size, padding=1)
+        self.conv2 = nn.Conv2d(out_channels, out_channels, kernel_size, padding=1)
+        self.conv3 = nn.Conv2d(out_channels, out_channels, kernel_size, padding=1)
+        self.conv4 = nn.Conv2d(out_channels, out_channels, kernel_size, padding=1)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = self.conv(x)
-        # x = self.relu(x)
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
+        x = self.relu(x)
+        x = self.conv3(x)
+        x = self.relu(x)
+        x = self.conv4(x)
+        x = self.relu(x)
         return x
 
 # Create model instance
