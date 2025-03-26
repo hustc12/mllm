@@ -1,4 +1,4 @@
-export QNN_SDK_ROOT=../src/backends/qnn/qualcomm_ai_engine_direct_220/
+export QNN_SDK_ROOT=../src/backends/qnn/sdk/
 export ANDROID_NDK_ROOT=/home/huzq85/software/softwareDev/AndroidSDK/ndk/26.3.11579264
 export PATH=$PATH:$ANDROID_NDK_ROOT
 
