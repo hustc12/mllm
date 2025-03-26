@@ -15,7 +15,7 @@ adb push ../models/simple_conv_model.mllm "/data/local/tmp/mllm/models/simple_co
 
 
 
-LIBPATH=../src/backends/qnn/qualcomm_ai_engine_direct_220/
+LIBPATH=../src/backends/qnn/sdk/
 ANDR_LIB=$LIBPATH/lib/aarch64-android
 OP_PATH=../src/backends/qnn/LLaMAOpPackageHtp/LLaMAPackage/build
 DEST=/data/local/tmp/mllm/qnn-lib
